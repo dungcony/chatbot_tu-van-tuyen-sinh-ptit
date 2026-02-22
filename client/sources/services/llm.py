@@ -15,14 +15,103 @@ Tương lai: Context Caching (Gemini API) - cache context dài cho các chủ đ
 """
 
 import re
-import google.generativeai as genai
-from google.api_core import exceptions as google_exceptions
-from config import GEMINI_API_KEY, GEMINI_MODEL
+from config import LLM_PROVIDER, LLM_BASE_URL, LLM_API_KEY, LLM_MODEL
 
-# ── Khởi tạo Gemini ───────────────────────────────────────────────────
-genai.configure(api_key=GEMINI_API_KEY)
-_model = None
-_chat_model = None  # Model với System Instruction cho generate_answer
+# ── Provider hiện tại (đọc từ .env) ──────────────────────────────────
+_PROVIDER = (LLM_PROVIDER or "gemini").lower().strip()
+print(f"[LLM] Provider: {_PROVIDER}")
+
+# ── Lazy-init clients ─────────────────────────────────────────────────
+_openai_client = None
+_gemini_model = None
+_gemini_chat_model = None
+
+
+def _get_openai_client():
+    global _openai_client
+    if _openai_client is None:
+        from openai import OpenAI
+        _openai_client = OpenAI(
+            api_key=LLM_API_KEY or "ollama",
+            base_url=LLM_BASE_URL or "http://localhost:11434/v1",
+        )
+        print(f"[LLM] OpenAI-compat client: base_url={LLM_BASE_URL}, model={LLM_MODEL}")
+    return _openai_client
+
+
+def _get_gemini_model(system_instruction: str = ""):
+    """Trả về Gemini GenerativeModel. Nếu có system_instruction thì tạo chat model."""
+    global _gemini_model, _gemini_chat_model
+    import google.generativeai as genai
+    _gemini_model_name = LLM_MODEL or "gemini-2.0-flash-lite"
+    genai.configure(api_key=LLM_API_KEY)
+    if system_instruction:
+        if _gemini_chat_model is None:
+            _gemini_chat_model = genai.GenerativeModel(
+                _gemini_model_name, system_instruction=system_instruction
+            )
+            print(f"[LLM] Gemini chat model: {_gemini_model_name}")
+        return _gemini_chat_model
+    else:
+        if _gemini_model is None:
+            _gemini_model = genai.GenerativeModel(_gemini_model_name)
+            print(f"[LLM] Gemini model: {_gemini_model_name}")
+        return _gemini_model
+
+
+def _call_llm(system: str, user: str, max_tokens: int = 1024, temperature: float = 0.1) -> str:
+    """
+    Unified LLM call — tự động chọn provider từ LLM_PROVIDER trong .env.
+    Đổi provider chỉ cần sửa .env, không sửa code.
+    """
+    if _PROVIDER == "gemini":
+        model = _get_gemini_model(system_instruction=system)
+        prompt = user
+        response = model.generate_content(
+            prompt,
+            generation_config={"temperature": temperature, "max_output_tokens": max_tokens},
+        )
+        try:
+            return response.text.strip() if response.text else ""
+        except ValueError:
+            return ""
+    else:
+        # Groq / Ollama / OpenAI — tất cả đều dùng OpenAI SDK
+        client = _get_openai_client()
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": user})
+        model_name = LLM_MODEL or ("llama-3.3-70b-versatile" if _PROVIDER == "groq" else "llama3.2")
+        resp = client.chat.completions.create(
+            model=model_name,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        return resp.choices[0].message.content.strip()
+
+
+# ── Giữ lại để không break code cũ nếu có nơi gọi trực tiếp ─────────
+def _get_model():
+    return _get_gemini_model()
+
+
+def _get_chat_model():
+    return _get_gemini_model(system_instruction=SYSTEM_INSTRUCTION)
+
+
+def _safe_response_text(response) -> str:
+    try:
+        return response.text.strip() if response.text else ""
+    except ValueError as e:
+        print(f"[LLM] response.text failed: {e}")
+        return ""
+
+
+def _call_gemini(prompt: str, max_tokens: int = 1024) -> str:
+    """Legacy wrapper — dùng _call_llm thay thế."""
+    return _call_llm("", prompt, max_tokens=max_tokens)
 
 
 SYSTEM_INSTRUCTION = """Bạn là trợ lý tư vấn tuyển sinh đại học. Nhiệm vụ: trả lời câu hỏi dựa CHÍNH XÁC trên thông tin tham khảo.
@@ -49,50 +138,6 @@ CÂU HỎI: Điểm chuẩn năm 2030?
 TRẢ LỜI: Hiện tại tôi chưa có dữ liệu chính xác cho năm 2030. Bạn có muốn xem dữ liệu năm gần nhất (2024) không?
 ---
 """
-
-
-def _get_model():
-    """Lazy init Gemini model (singleton) - dùng cho rewrite, rerank."""
-    global _model
-    if _model is None:
-        _model = genai.GenerativeModel(GEMINI_MODEL)
-        print(f"[LLM] Initialized Gemini model: {GEMINI_MODEL}")
-    return _model
-
-
-def _get_chat_model():
-    """Model với System Instruction - giảm token mỗi lượt chat."""
-    global _chat_model
-    if _chat_model is None:
-        _chat_model = genai.GenerativeModel(
-            GEMINI_MODEL,
-            system_instruction=SYSTEM_INSTRUCTION
-        )
-        print(f"[LLM] Initialized chat model with System Instruction")
-    return _chat_model
-
-
-def _safe_response_text(response) -> str:
-    """Lấy text từ response, tránh lỗi khi response không có Part hợp lệ (finish_reason=2, SAFETY, v.v.)."""
-    try:
-        return response.text.strip() if response.text else ""
-    except ValueError as e:
-        # "Invalid operation: The response.text quick accessor requires..."
-        print(f"[LLM] response.text failed (no valid Part): {e}")
-        return ""
-
-
-def _call_gemini(prompt: str, max_tokens: int = 1024) -> str:
-    """Hàm nội bộ - gọi Google Gemini API và trả về text."""
-    model = _get_model()
-    response = model.generate_content(
-        prompt,
-        generation_config={
-            "temperature": 0.1,
-            "max_output_tokens": max_tokens,
-        }
-    )
-    return _safe_response_text(response)
 
 
 def rewrite_and_hyde(query: str, history: list, school_name: str = "") -> tuple:
@@ -142,7 +187,7 @@ REWRITE: <câu hỏi viết lại>
 HYDE: <đoạn văn giả định>"""
 
     try:
-        raw = _call_gemini(prompt, max_tokens=300)
+        raw = _call_llm("", prompt, max_tokens=300)
 
         rewritten = query
         hyde = query
@@ -200,7 +245,7 @@ CÁC ĐOẠN VĂN:
 ĐIỂM (chỉ số, cách nhau dấu phẩy):"""
 
     try:
-        raw = _call_gemini(prompt, max_tokens=50)
+        raw = _call_llm("", prompt, max_tokens=50)
 
         # ⚡ FIX: Dùng regex lọc CHỈ các số 1-5, bỏ qua mọi text thừa
         # LLM đôi khi viết: "Đây là điểm của bạn: 4,2,5" → vẫn parse đúng
@@ -329,20 +374,18 @@ CÂU HỎI: {query}
 
 TRẢ LỜI (trích dẫn [Nguồn X] khi sử dụng thông tin):"""
 
-    # Dùng chat model với System Instruction
-    model = _get_chat_model()
     try:
-        response = model.generate_content(
-            user_prompt,
-            generation_config={
-                "temperature": 0.1,
-                "max_output_tokens": 1024,
-            }
-        )
-        text = _safe_response_text(response)
+        text = _call_llm(SYSTEM_INSTRUCTION, user_prompt, max_tokens=1024, temperature=0.1)
         if not text:
             return "Xin lỗi, tôi không thể tạo câu trả lời từ dữ liệu này. Bạn thử hỏi cách khác nhé."
         return text
-    except google_exceptions.ResourceExhausted as e:
-        print(f"[LLM] Quota exceeded: {e}")
-        return "Xin lỗi, dịch vụ đang quá tải (đã vượt giới hạn sử dụng). Vui lòng thử lại sau vài phút hoặc ngày mai."
+    except Exception as e:
+        err = str(e).lower()
+        if "quota" in err or "429" in err or "resource_exhausted" in err or "rate_limit" in err:
+            print(f"[LLM] Quota/rate limit: {e}")
+            return "Xin lỗi, dịch vụ AI đang hết quota hoặc quá tải. Vui lòng thử lại sau vài phút."
+        if "permission" in err or "403" in err or "leaked" in err or "api_key" in err:
+            print(f"[LLM] API key error: {e}")
+            return "Xin lỗi, API key không hợp lệ hoặc đã bị vô hiệu hóa. Vui lòng kiểm tra file .env."
+        print(f"[LLM] Error: {e}")
+        return "Xin lỗi, đã xảy ra lỗi khi kết nối LLM. Vui lòng thử lại."

@@ -15,9 +15,12 @@ if not MONGO_URI:
     raise RuntimeError("MONGO_URI environment variable not set. Check .env file.")
 DB_NAME = os.getenv("DB_NAME", "tuvantuyensinh")
 
-# ── Google Gemini API ──────────────────────────────────────────────────
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+# ── LLM Provider (doi trong .env, khong can sua code) ──────────────────
+# LLM_PROVIDER: gemini | groq | ollama | openai
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")
+LLM_BASE_URL  = os.getenv("LLM_BASE_URL", "")   # VD: https://api.groq.com/openai/v1
+LLM_API_KEY   = os.getenv("LLM_API_KEY", "")    # API key cua provider
+LLM_MODEL     = os.getenv("LLM_MODEL", "")      # VD: llama-3.3-70b-versatile
 
 # ── Embedding ──────────────────────────────────────────────────────────
 EMBEDDING_MODEL = os.getenv(

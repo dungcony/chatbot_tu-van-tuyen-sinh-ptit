@@ -3,6 +3,7 @@ flask
 pymongo
 python-dotenv
 google-generativeai
+openai
 
 # Embedding + Vector search
 langchain-huggingface

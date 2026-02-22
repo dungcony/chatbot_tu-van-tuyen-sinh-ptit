@@ -1,0 +1,15 @@
+# ================================================================
+# DOI PROVIDER: chi can thay LLM_PROVIDER + LLM_API_KEY + LLM_MODEL
+# Khong can sua code
+# ================================================================
+
+# --- GROQ (free, nhanh) -------------------------------------------
+# Lay API key tai: https://console.groq.com
+LLM_PROVIDER=groq
+LLM_BASE_URL=https://api.groq.com/openai/v1
+LLM_API_KEY=
+LLM_MODEL=llama-3.3-70b-versatile
+
+# MongoDB Atlas
+MONGO_URI=mongodb+srv://dungcony:EWdWugrClZNjlPFb@dungcony.qllqaij.mongodb.net/
+DB_NAME=tuvantuyensinh

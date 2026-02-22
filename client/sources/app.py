@@ -27,10 +27,8 @@ app = Flask(__name__)
 register_routers(app)
 
 if __name__ == "__main__":
-    from config import GEMINI_MODEL
     print("=" * 50)
     print("Chatbot Tư vấn Tuyển sinh")
-    print(f"Gemini model: {GEMINI_MODEL}")
     print("http://localhost:5000")
     print("=" * 50)
     debug = os.getenv("FLASK_DEBUG", "1").lower() in ("1", "true")
