@@ -1,0 +1,93 @@
+{% extends "layout.html" %}
+{% block title %}Documents - Admin TVTS{% endblock %}
+{% block content %}
+    <div class="stats" id="stats">
+      <div class="stat-card">
+        <div class="label">Tổng documents</div>
+        <div class="value" id="stat-total">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Trường (school)</div>
+        <div class="value" id="stat-schools">-</div>
+      </div>
+    </div>
+
+    <div class="filters">
+      <input type="search" id="search" placeholder="Tìm theo nội dung, tiêu đề..." />
+      <select id="filter-school">
+        <option value="">Tất cả trường</option>
+      </select>
+      <input type="text" id="filter-file" placeholder="Lọc theo source_file" />
+      <button class="btn btn-primary" onclick="loadDocuments(1)">Tìm kiếm</button>
+      <button class="btn btn-primary" onclick="openCreateModal()">+ Thêm mới</button>
+    </div>
+
+    <div id="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>School</th>
+            <th>Source</th>
+            <th>Nội dung (preview)</th>
+            <th>Tags</th>
+            <th>Thao tác</th>
+          </tr>
+        </thead>
+        <tbody id="doc-list"></tbody>
+      </table>
+    </div>
+    <div class="pagination" id="pagination"></div>
+
+  <div class="modal-overlay hidden" id="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modal-title">Chỉnh sửa document</h2>
+        <button class="btn btn-ghost" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="edit-id" />
+        <label>School</label>
+        <input type="text" id="edit-school" placeholder="ptit, hust, ..." />
+        <label>Source file</label>
+        <input type="text" id="edit-source-file" placeholder="ptit_xxx.md" />
+        <label>Source URL</label>
+        <input type="url" id="edit-source-url" placeholder="https://..." />
+        <label>Source title</label>
+        <input type="text" id="edit-source-title" placeholder="Tiêu đề trang" />
+        <label>Nội dung</label>
+        <textarea id="edit-content" placeholder="Nội dung chunk..."></textarea>
+        <label>Tags (phân cách bằng dấu phẩy)</label>
+        <input type="text" id="edit-tags" placeholder="hoc_phi, diem_chuan, 2025" />
+        <label>Chunk ID / Total chunks</label>
+        <div style="display:flex; gap:0.5rem;">
+          <input type="number" id="edit-chunk-id" placeholder="1" style="width:80px" />
+          <input type="number" id="edit-total-chunks" placeholder="5" style="width:80px" />
+        </div>
+        <div class="error" id="modal-error"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal()">Hủy</button>
+        <button class="btn btn-primary" id="modal-save-btn" onclick="saveDocument()">Lưu</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay hidden" id="delete-modal">
+    <div class="modal" style="max-width:400px">
+      <div class="modal-header">
+        <h2>Xác nhận xóa</h2>
+        <button class="btn btn-ghost" onclick="closeDeleteModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>Bạn có chắc muốn xóa document này? Hành động không thể hoàn tác.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeDeleteModal()">Hủy</button>
+        <button class="btn btn-danger" onclick="confirmDelete()">Xóa</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='admin.js') }}"></script>
+{% endblock %}

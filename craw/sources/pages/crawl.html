@@ -1,0 +1,95 @@
+{% extends "layout.html" %}
+{% block title %}Crawl - Admin TVTS{% endblock %}
+{% block content %}
+<h2 class="page-title">Crawl dữ liệu</h2>
+<p class="text-muted mb">Crawl từ links JSON, URL đơn, hoặc URL phân cấp. Output lưu vào <code>public/data/</code>.</p>
+
+<div class="form-card">
+  <h3>1. Crawl theo file JSON</h3>
+  <p class="text-muted" style="font-size:0.9rem">Chọn file .json trong <code>public/links/</code></p>
+  <div class="filters">
+    <select id="json-file">
+      <option value="">-- Chọn file --</option>
+      {% for f in json_files %}
+      <option value="{{ f }}">{{ f }}</option>
+      {% endfor %}
+    </select>
+    <input type="number" id="json-max" value="500" placeholder="Max pages" style="width:100px" />
+    <button class="btn btn-primary" onclick="crawlJson()">Crawl</button>
+  </div>
+  <div id="json-result" class="mt"></div>
+</div>
+
+<div class="form-card">
+  <h3>2. Crawl theo URL đơn</h3>
+  <div class="filters">
+    <input type="url" id="url-input" placeholder="https://..." style="min-width:300px" />
+    <button class="btn btn-primary" onclick="crawlUrl()">Crawl</button>
+  </div>
+  <div id="url-result" class="mt"></div>
+</div>
+
+<div class="form-card">
+  <h3>3. Crawl phân cấp (theo URL gốc)</h3>
+  <p class="text-muted" style="font-size:0.9rem">Tìm tất cả link con dưới URL: sitemap + HTML</p>
+  <div class="filters">
+    <input type="url" id="hier-url" placeholder="https://tuyensinh.ptit.edu.vn/tin-tuc" style="min-width:300px" />
+    <input type="number" id="hier-max" value="500" placeholder="Max" style="width:80px" />
+    <button class="btn btn-primary" onclick="crawlHierarchical()">Crawl</button>
+  </div>
+  <div id="hier-result" class="mt"></div>
+</div>
+
+<script>
+function showResult(elId, ok, output, error) {
+  const el = document.getElementById(elId);
+  el.innerHTML = '<pre style="background:var(--surface-hover);padding:12px;border-radius:8px;overflow:auto;max-height:200px;font-size:0.85rem">' +
+    (output || error || '').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</pre>';
+  if (error) el.style.color = 'var(--danger)';
+}
+
+async function crawlJson() {
+  const file = document.getElementById('json-file').value;
+  const max = document.getElementById('json-max').value || 500;
+  if (!file) { alert('Chọn file JSON'); return; }
+  const result = document.getElementById('json-result');
+  result.innerHTML = '<span class="loading">Đang crawl...</span>';
+  const r = await fetch('/api/crawl/json', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({file, max: parseInt(max)})
+  });
+  const d = await r.json();
+  showResult('json-result', d.ok, d.output, d.error);
+}
+
+async function crawlUrl() {
+  const url = document.getElementById('url-input').value.trim();
+  if (!url) { alert('Nhập URL'); return; }
+  const result = document.getElementById('url-result');
+  result.innerHTML = '<span class="loading">Đang crawl...</span>';
+  const r = await fetch('/api/crawl/url', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url})
+  });
+  const d = await r.json();
+  showResult('url-result', d.ok, d.output, d.error);
+}
+
+async function crawlHierarchical() {
+  const url = document.getElementById('hier-url').value.trim();
+  const max = document.getElementById('hier-max').value || 500;
+  if (!url) { alert('Nhập URL gốc'); return; }
+  const result = document.getElementById('hier-result');
+  result.innerHTML = '<span class="loading">Đang crawl (có thể mất vài phút)...</span>';
+  const r = await fetch('/api/crawl/hierarchical', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url, max: parseInt(max)})
+  });
+  const d = await r.json();
+  showResult('hier-result', d.ok, d.output, d.error);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,29 @@
+# === Core: Chatbot TVTS ===
+flask
+pymongo
+python-dotenv
+google-generativeai
+
+# Embedding + Vector search
+langchain-huggingface
+sentence-transformers
+rapidfuzz
+
+# Intent detection (thefuzz)
+thefuzz
+python-Levenshtein
+
+# === Phụ thuộc (langchain-huggingface có thể cần) ===
+langchain
+langchain-community
+
+# === Tùy chọn: Crawl / Ingest dữ liệu ===
+# Bỏ comment nếu có script crawl, ingest
+# requests
+# beautifulsoup4
+# markdownify
+# markdown
+# langchain-text-splitters
+# Pillow
+# easyocr
+# playwright  # + playwright install chromium

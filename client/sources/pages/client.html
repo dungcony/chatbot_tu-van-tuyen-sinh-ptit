@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trợ lý Tư vấn Tuyển sinh</title>
+    <link rel="stylesheet" href="{{ url_for('chat.static', filename='client.css') }}">
+</head>
+<body>
+    <header>
+        <h1>🎓 Trợ lý Tư vấn Tuyển sinh</h1>
+        <p>Hỏi đáp về điểm chuẩn, học phí, chỉ tiêu, ngành học... Chọn trường hoặc đặt câu hỏi ngay!</p>
+    </header>
+
+    <div id="chat-container">
+        <div class="welcome" id="welcome">
+            <h2>Xin chào!</h2>
+            <p>Bạn muốn tìm hiểu về trường nào? Hãy nhập tên trường hoặc đặt câu hỏi.</p>
+        </div>
+    </div>
+
+    <div id="input-area">
+        <form id="input-form">
+            <input type="text" id="message-input" placeholder="Nhập câu hỏi hoặc tên trường..." autocomplete="off">
+            <button type="submit" id="send-btn">Gửi</button>
+        </form>
+    </div>
+
+    <script src="{{ url_for('chat.static', filename='client.js') }}"></script>
+</body>
+</html>

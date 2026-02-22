@@ -1,0 +1,48 @@
+{% extends "layout.html" %}
+{% block title %}Embed - Admin TVTS{% endblock %}
+{% block content %}
+<h2 class="page-title">Embedding dữ liệu</h2>
+<p class="text-muted mb">Tạo vector embedding cho các documents chưa có embedding (dùng cho tìm kiếm ngữ nghĩa).</p>
+
+<div class="stat-card mb">
+  <div class="label">Documents chưa embed</div>
+  <div class="value" id="unembedded">-</div>
+</div>
+
+<button class="btn btn-primary" id="btn-embed" onclick="runEmbed()">Chạy Embedding</button>
+<div id="embed-result" class="mt"></div>
+
+<script>
+async function loadStats() {
+  try {
+    const r = await fetch('/api/embed/stats');
+    const d = await r.json();
+    document.getElementById('unembedded').textContent = d.unembedded;
+  } catch (e) {
+    document.getElementById('unembedded').textContent = 'Lỗi';
+  }
+}
+
+async function runEmbed() {
+  const btn = document.getElementById('btn-embed');
+  const result = document.getElementById('embed-result');
+  btn.disabled = true;
+  result.innerHTML = '<span class="loading">Đang xử lý... (có thể mất vài phút)</span>';
+  try {
+    const r = await fetch('/api/embed/run', { method: 'POST' });
+    const d = await r.json();
+    if (d.error) {
+      result.innerHTML = '<span class="error">Lỗi: ' + d.error + '</span>';
+    } else {
+      result.innerHTML = '<span class="success">Đã embed ' + d.embedded + ' / ' + d.total + ' documents.</span>';
+    }
+    loadStats();
+  } catch (e) {
+    result.innerHTML = '<span class="error">' + e.message + '</span>';
+  }
+  btn.disabled = false;
+}
+
+loadStats();
+</script>
+{% endblock %}

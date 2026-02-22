@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Admin TVTS{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+  <header>
+    <div class="container header-inner">
+      <h1><a href="/">🤖 Admin TVTS</a></h1>
+      <nav class="nav-links">
+        <a href="/" class="{% if request.endpoint == 'admin.admin_page' %}active{% endif %}">Documents</a>
+        <a href="/crawl" class="{% if request.endpoint and 'crawl' in request.endpoint %}active{% endif %}">Crawl</a>
+        <a href="/normalize" class="{% if request.endpoint and 'normalize' in request.endpoint %}active{% endif %}">Normalize</a>
+        <a href="/prepare" class="{% if request.endpoint and 'prepare' in request.endpoint %}active{% endif %}">Prepare</a>
+        <a href="/embed" class="{% if request.endpoint and 'embed' in request.endpoint %}active{% endif %}">Embed</a>
+      </nav>
+    </div>
+  </header>
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

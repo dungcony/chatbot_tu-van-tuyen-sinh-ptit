@@ -1,0 +1,50 @@
+{% extends "layout.html" %}
+{% block title %}Prepare - Admin TVTS{% endblock %}
+{% block content %}
+<h2 class="page-title">Prepare & Embed lên DB</h2>
+<p class="text-muted mb">Chunk, upload lên MongoDB và <strong>embed vector</strong> (sẵn sàng cho chatbot). Chọn folder đã normalize (<code>*_nor</code>) hoặc raw (<code>data/</code>).</p>
+
+<div class="form-card">
+  <h3>Chọn folder nguồn</h3>
+  <select id="source">
+    <option value="">-- Chọn folder --</option>
+    {% for d in source_dirs %}
+    <option value="{{ d.path }}">{{ d.label }} ({{ d.count }} files)</option>
+    {% endfor %}
+  </select>
+  <label class="checkbox-label mt">
+    <input type="checkbox" id="clear" /> Xóa dữ liệu cũ trong MongoDB trước khi upload
+  </label>
+  <label class="checkbox-label mt">
+    <input type="checkbox" id="embed" checked /> Embed vector ngay sau khi upload
+  </label>
+  <button class="btn btn-primary mt" onclick="runPrepare()">Upload + Embed lên DB</button>
+  <div id="result" class="mt"></div>
+</div>
+
+<script>
+async function runPrepare() {
+  const source = document.getElementById('source').value;
+  const clear = document.getElementById('clear').checked;
+  const embed = document.getElementById('embed').checked;
+  if (!source) { alert('Chọn nguồn'); return; }
+  const result = document.getElementById('result');
+  result.innerHTML = '<span class="loading">Đang upload' + (embed ? ' và embed' : '') + '... (có thể mất vài phút)</span>';
+  const r = await fetch('/api/prepare/run', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({source, clear, embed})
+  });
+  const d = await r.json();
+  if (d.ok) {
+    let msg = 'Đã upload ' + d.uploaded + ' chunks từ ' + d.files + ' files.';
+    if (d.embedded !== undefined && d.embedded > 0) {
+      msg += ' Đã embed ' + d.embedded + ' vectors.';
+    }
+    result.innerHTML = '<span class="success">' + msg + '</span>';
+  } else {
+    result.innerHTML = '<span class="error">' + (d.error || 'Lỗi') + '</span>';
+  }
+}
+</script>
+{% endblock %}

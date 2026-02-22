@@ -1,0 +1,110 @@
+{% extends "layout.html" %}
+{% block title %}Normalize - Admin TVTS{% endblock %}
+{% block content %}
+<h2 class="page-title">Xử lý dữ liệu (Normalize)</h2>
+<p class="text-muted mb">Chọn folder trong <code>/data</code> → Kết quả lưu vào folder <code>{tên_folder}_nor</code> cùng cấp.<br>
+  Ví dụ: <code>data/ptit</code> → <code>data/ptit_nor</code></p>
+
+<div class="form-card">
+  <h3>1. Chọn folder nguồn (trong /data)</h3>
+  <div class="filters">
+    <select id="folder">
+      <option value="">-- Chọn folder --</option>
+      {% for f in folders %}
+      <option value="{{ f.path }}" data-output="{{ f.output }}">{{ f.label }} ({{ f.count }} files) → {{ f.output }}/</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div id="output-preview" class="output-preview mt"></div>
+</div>
+
+<div class="form-card">
+  <h3>2. Chọn file (tùy chọn)</h3>
+  <p class="text-muted" style="font-size:0.9rem">Để trống = xử lý toàn bộ folder</p>
+  <p class="filters">
+    <select id="file" style="min-width:280px">
+      <option value="">Toàn bộ folder</option>
+    </select>
+  </p>
+</div>
+
+<div class="form-card">
+  <h3>3. Bước xử lý</h3>
+  <div class="step-grid">
+    {% for p in processors %}
+    <label class="step-check">
+      <input type="checkbox" name="step" value="{{ p }}" checked /> {{ p }}
+    </label>
+    {% endfor %}
+  </div>
+</div>
+
+<button class="btn btn-primary" id="btn-run" onclick="runNormalize()">Chạy Normalize</button>
+<div id="result" class="mt"></div>
+
+<script>
+const folderSelect = document.getElementById('folder');
+const fileSelect = document.getElementById('file');
+const outputPreview = document.getElementById('output-preview');
+
+function updateOutputPreview() {
+  const opt = folderSelect.options[folderSelect.selectedIndex];
+  if (!opt || !opt.value) {
+    outputPreview.innerHTML = '';
+    return;
+  }
+  const output = opt.dataset.output || opt.value + '_nor';
+  outputPreview.innerHTML = '<span class="text-muted">Kết quả sẽ lưu vào: </span><code>' + output + '/</code>';
+}
+
+folderSelect.addEventListener('change', async function() {
+  updateOutputPreview();
+  fileSelect.innerHTML = '<option value="">Toàn bộ folder</option>';
+  const folder = this.value;
+  if (!folder) return;
+  const r = await fetch('/api/normalize/files?folder=' + encodeURIComponent(folder));
+  const d = await r.json();
+  d.files.forEach(f => {
+    const opt = document.createElement('option');
+    opt.value = f;
+    opt.textContent = f;
+    fileSelect.appendChild(opt);
+  });
+});
+
+async function runNormalize() {
+  const folder = folderSelect.value;
+  const file = fileSelect.value || null;
+  const steps = Array.from(document.querySelectorAll('input[name=step]:checked')).map(c => c.value);
+  if (!folder) { alert('Chọn folder trong /data'); return; }
+  const result = document.getElementById('result');
+  const btn = document.getElementById('btn-run');
+  btn.disabled = true;
+  result.innerHTML = '<span class="loading">Đang xử lý...</span>';
+  try {
+    const r = await fetch('/api/normalize/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({folder, file, steps})
+    });
+    const d = await r.json();
+    let html = '<pre class="result-log">' + (d.output || '').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</pre>';
+    if (d.stats) {
+      html += '<p class="result-stats">OK: ' + (d.stats.ok||0) + ' | DUP: ' + (d.stats.dup||0) + ' | ERR: ' + (d.stats.err||0) + '</p>';
+    }
+    if (d.output_folder) {
+      html += '<p class="success">Kết quả: <code>' + d.output_folder + '/</code></p>';
+    }
+    if (!d.ok) {
+      html = '<pre class="error">' + (d.output || d.error || 'Lỗi') + '</pre>';
+    }
+    result.innerHTML = html;
+  } catch (e) {
+    result.innerHTML = '<span class="error">' + e.message + '</span>';
+  }
+  btn.disabled = false;
+}
+
+updateOutputPreview();
+</script>
+{% endblock %}
