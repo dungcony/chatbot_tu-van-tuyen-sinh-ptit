@@ -1,7 +1,17 @@
 #!/usr/bin/env python3
-"""
-Crawl phân cấp: từ URL gốc (vd: https://site.com/tin) trả về tất cả link con
-ví dụ: https://site.com/tin/page1, https://site.com/tin/2025/bai-viet, ...
+"""crawl_hierarchical.py
+
+Crawl link từ một URL gốc.
+
+Mục tiêu chính:
+- Thu thập danh sách URL (không crawl nội dung).
+- Có thể lưu danh sách này thành JSON trong `public/links/` để dùng với
+    `run_crawl_from_links.py` (crawl nội dung hàng loạt).
+
+Các chế độ scope:
+- path (mặc định): chỉ lấy URL cùng domain và cùng prefix path với base_url.
+- domain: lấy URL cùng domain (không giới hạn path) (cẩn thận vì có thể rất nhiều).
+- page: chỉ lấy link ngay trên trang base_url (không BFS sang trang con).
 """
 import json
 import os
@@ -167,12 +177,17 @@ def _fetch_html(url: str, timeout: int = 15, use_playwright: bool = True) -> str
     return None
 
 
-def _extract_links(html: str, base_url: str, base_path: str) -> set[str]:
-    """Trích xuất các link cùng domain và nằm dưới base_path."""
+def _extract_links(html: str, base_url: str, base_path: str, *, scope: str = "path") -> set[str]:
+    """Trích xuất các link.
+
+    scope:
+      - path: cùng domain + dưới base_path
+      - domain: cùng domain
+      - page: cùng domain (không ràng buộc path; BFS được xử lý ở caller)
+    """
     soup = BeautifulSoup(html, "html.parser")
     parsed_base = urlparse(base_url)
     base_domain = parsed_base.netloc.lower()
-    base_scheme = parsed_base.scheme
     found = set()
 
     for a in soup.find_all("a", href=True):
@@ -188,10 +203,19 @@ def _extract_links(html: str, base_url: str, base_path: str) -> set[str]:
         ext = os.path.splitext(parsed.path)[1].lower()
         if ext in SKIP_EXTENSIONS:
             continue
-        if _is_under_path(full_url, base_path):
-            norm = _normalize_url(full_url)
-            if norm != _normalize_url(base_url):
-                found.add(norm)
+        if scope == "path":
+            if not _is_under_path(full_url, base_path):
+                continue
+        elif scope in ("domain", "page"):
+            pass
+        else:
+            # fallback an toàn
+            if not _is_under_path(full_url, base_path):
+                continue
+
+        norm = _normalize_url(full_url)
+        if norm != _normalize_url(base_url):
+            found.add(norm)
     return found
 
 
@@ -203,6 +227,7 @@ def crawl_hierarchical(
     validate_urls: bool = True,
     use_sitemap: bool = True,
     verbose: bool = True,
+    scope: str = "path",
 ) -> list[str]:
     """
     Crawl toàn bộ link phân cấp dưới base_url.
@@ -230,14 +255,35 @@ def crawl_hierarchical(
     """
     parsed = urlparse(base_url)
     base_path = parsed.path.rstrip("/") or "/"
-    base_domain = parsed.netloc.lower()
 
     # Đảm bảo base_url cũng nằm trong kết quả
     all_urls = {_normalize_url(base_url)}
     queue = deque([base_url])
     visited = set()
 
-    # Lấy URLs từ sitemap trước (tìm được bài viết như diem-chuan-2025 mà HTML không có link)
+    # page-scope: chỉ extract link ngay trên base_url (không BFS)
+    if scope == "page":
+        html = _fetch_html(base_url, use_playwright=use_playwright)
+        if not html:
+            return sorted(all_urls)
+        html_lower = html[:3000].lower()
+        if any(p in html_lower for p in ERROR_404_PATTERNS):
+            return sorted(all_urls)
+        links = _extract_links(html, base_url, base_path, scope="page")
+        for link in links:
+            if link not in all_urls:
+                if validate_urls and not _url_exists(link):
+                    continue
+                all_urls.add(link)
+                if len(all_urls) >= max_pages:
+                    break
+        result = sorted(all_urls)
+        if verbose:
+            print(f"\nTổng: {len(result)} URL")
+        return result
+
+    # Lấy URLs từ sitemap trước (tìm được bài viết mà HTML không có link)
+    # Chỉ chạy sitemap khi scope != page
     if use_sitemap:
         sitemap_urls = _fetch_sitemap_urls(base_url, base_path)
         if sitemap_urls:
@@ -277,7 +323,7 @@ def crawl_hierarchical(
                 print(f"    SKIP (404): {url}")
             continue
 
-        links = _extract_links(html, url, base_path)
+        links = _extract_links(html, url, base_path, scope=scope)
         for link in links:
             if link not in all_urls:
                 if validate_urls and not _url_exists(link):
@@ -309,6 +355,17 @@ if __name__ == "__main__":
     ap.add_argument("-q", "--quiet", action="store_true", help="Không in log")
     ap.add_argument("--no-validate", action="store_true", help="Không kiểm tra 404 (nhanh hơn nhưng có thể có link lỗi)")
     ap.add_argument("--no-sitemap", action="store_true", help="Không dùng sitemap")
+    ap.add_argument(
+        "--scope",
+        choices=["path", "domain", "page"],
+        default="path",
+        help="Phạm vi lấy link: path (mặc định), domain (cùng domain), page (chỉ 1 trang)",
+    )
+    ap.add_argument(
+        "--save-links",
+        action="store_true",
+        help="Lưu danh sách URL thành JSON trong public/links/ để crawl theo file JSON",
+    )
     args = ap.parse_args()
 
     urls = crawl_hierarchical(
@@ -319,6 +376,7 @@ if __name__ == "__main__":
         validate_urls=not args.no_validate,
         use_sitemap=not args.no_sitemap,
         verbose=not args.quiet,
+        scope=args.scope,
     )
 
     if args.output:
@@ -326,7 +384,7 @@ if __name__ == "__main__":
             f.write("\n".join(urls))
         print(f"Đã lưu {len(urls)} URL vào {args.output}")
 
-    # Luôn tạo file JSON: ex_{tên_link}.json
+    # Luôn tạo file JSON log trong folder scripts: ex_{tên_link}.json
     parsed = urlparse(args.url)
     slug = re.sub(r"[^\w\-]", "_", f"{parsed.netloc}_{parsed.path}".strip("/_"))[:80]
     json_path = Path(__file__).resolve().parent / f"ex_{slug}.json"
@@ -334,10 +392,30 @@ if __name__ == "__main__":
         "base_url": args.url,
         "urls": urls,
         "count": len(urls),
+        "scope": args.scope,
     }
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=2)
     print(f"Đã lưu JSON: {json_path}")
+
+    # Tuỳ chọn: lưu JSON trong public/links/ đúng format để run_crawl_from_links đọc
+    if args.save_links:
+        root = Path(__file__).resolve().parent.parent.parent
+        links_dir = root / "public" / "links"
+        links_dir.mkdir(parents=True, exist_ok=True)
+        links_json_path = links_dir / f"{slug}.json"
+        # Format: dict -> list URL string (flatten_links_from_json sẽ đọc được)
+        links_data = {
+            "meta": {
+                "base_url": args.url,
+                "scope": args.scope,
+                "count": len(urls),
+            },
+            "urls": urls,
+        }
+        with open(links_json_path, "w", encoding="utf-8") as f:
+            json.dump(links_data, f, ensure_ascii=False, indent=2)
+        print(f"Đã lưu links JSON: {links_json_path}")
 
     if not args.output:
         for u in urls:

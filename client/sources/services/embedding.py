@@ -23,12 +23,16 @@ class EmbeddingConfig(BaseModel):
 class MainEmbedding:
     """Lớp chứa logic chính để sử dụng mô hình SentenceTransformer."""
 
-    def __init__(self, config: EmbeddingConfig):
+    def __init__(self, config: EmbeddingConfig, device: str | None = None):
         self.config = config
-        self.embedding_model = SentenceTransformer(self.config.name)
+        self.device = device
+        if device:
+            self.embedding_model = SentenceTransformer(self.config.name, device=device)
+        else:
+            self.embedding_model = SentenceTransformer(self.config.name)
 
-    def encode(self, text: str):
-        """Tạo embedding từ chuỗi văn bản."""
+    def encode(self, text: str | list[str]):
+        """Tạo embedding từ chuỗi văn bản hoặc danh sách chuỗi (batch)."""
         return self.embedding_model.encode(text)
 
     def embed_query(self, query: str) -> list:
@@ -44,9 +48,19 @@ def get_embedding_model(embedding_name: str | None = None) -> MainEmbedding:
     """Trả về embedding model (khởi tạo 1 lần duy nhất)."""
     global _instance
     if _instance is None:
-        from config import EMBEDDING_MODEL
+        from config import EMBEDDING_MODEL, EMBEDDING_DEVICE
         name = embedding_name or EMBEDDING_MODEL
+        device = (EMBEDDING_DEVICE or "auto").lower()
+        device = device if device in ("cpu", "cuda") else None
         print(f"Đang khởi tạo Embedding Model ({name})...")
-        _instance = MainEmbedding(EmbeddingConfig(name=name))
+        try:
+            _instance = MainEmbedding(EmbeddingConfig(name=name), device=device)
+            print(f"Embedding device: {device or 'auto'}")
+        except RuntimeError as e:
+            if ("out of memory" in str(e).lower() or "cuda" in str(e).lower()) and device != "cpu":
+                _instance = MainEmbedding(EmbeddingConfig(name=name), device="cpu")
+                print("CUDA OOM -> fallback to CPU")
+            else:
+                raise
         print("Embedding Model sẵn sàng!")
     return _instance

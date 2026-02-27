@@ -36,18 +36,37 @@ def _get_output_path(input_path: Path) -> Path:
 
 
 def _list_folders(base: Path) -> list[tuple[str, Path]]:
-    """Liệt kê folder có file .md/.txt trong /data (bao gồm chính base nếu có file)."""
-    out = []
+    """Liệt kê folder có file .md/.txt trong /data (đệ quy).
+
+    Lý do: crawl mới lưu theo cấu trúc nhiều tầng: data/<source>/<category>/...
+    nên UI cần nhìn thấy các folder con (vd: public/data/ptit/info).
+    """
+    out: list[tuple[str, Path]] = []
     if not base.exists():
         return out
-    base_count = len(list(base.glob("*.md"))) + len(list(base.glob("*.txt")))
-    if base_count > 0:
-        out.append((str(base.relative_to(ROOT)), base))
-    for d in sorted(base.iterdir()):
-        if d.is_dir() and not d.name.startswith(".") and not d.name.endswith("_nor"):
-            count = len(list(d.glob("*.md"))) + len(list(d.glob("*.txt")))
-            if count > 0:
+
+    def has_text_files(p: Path) -> bool:
+        return any(f.is_file() and f.suffix in (".md", ".txt") and not f.name.startswith(".") for f in p.iterdir())
+
+    # Include base if it has files
+    try:
+        if base.is_dir() and has_text_files(base):
+            out.append((str(base.relative_to(ROOT)), base))
+    except Exception:
+        pass
+
+    # Include subfolders recursively
+    for d in sorted({p for p in base.rglob("*") if p.is_dir()}):
+        if d.name.startswith(".") or d.name.endswith("_nor") or d.name == "__pycache__":
+            continue
+        try:
+            if has_text_files(d):
                 out.append((str(d.relative_to(ROOT)), d))
+        except Exception:
+            continue
+
+    # Stable sort by relative path
+    out.sort(key=lambda x: x[0])
     return out
 
 

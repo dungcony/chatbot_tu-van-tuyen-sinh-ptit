@@ -11,6 +11,7 @@ SCHEMA = {
     "source_title": None, # Tiêu đề trang web
     "source_date": None,  # Ngày/tháng tài liệu (ISO hoặc "2024") - ưu tiên khi có mâu thuẫn
     "tags": None,         # Metadata: ["hoc_phi", "diem_chuan", "2024", ...]
+    "year": None,         # Năm tài liệu (vd: 2024, 2025) nếu có trong META
     "questions": None,    # Câu hỏi mẫu mà đoạn văn có thể trả lời - tăng độ chính xác search
     "chunk_id": None,     # Số thứ tự đoạn (chunk) trong file
     "total_chunks": None, # Tổng số chunk của file

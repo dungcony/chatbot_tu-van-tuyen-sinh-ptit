@@ -59,7 +59,14 @@ def _detect_program_name(query: str) -> str:
     return ""
 
 
-def _text_search_score_docs(collection, school: str, program_name: str, tags: list | None = None, limit: int = 5) -> list:
+def _text_search_score_docs(
+    collection,
+    school: str,
+    program_name: str,
+    tags: list | None = None,
+    year: str | None = None,
+    limit: int = 5,
+) -> list:
     """
     Text search: tim docs chua ten nganh CU THE trong content.
     Dac biet huu ich cho du lieu dang bang (table) ma vector search miss.
@@ -68,14 +75,16 @@ def _text_search_score_docs(collection, school: str, program_name: str, tags: li
     s_norm = _normalize_school(school)
     query_filter = {"school": {"$in": [s_norm, s_norm + "/"]}}
     if tags:
-        query_filter["tags"] = {"$in": tags}
+        query_filter["tags"] = {"$all": tags}
+    if year:
+        query_filter["year"] = year
 
     # Tim docs co chua ten nganh trong content (case-insensitive regex)
     query_filter["content"] = {"$regex": program_name, "$options": "i"}
 
     results = list(collection.find(
         query_filter,
-        {"_id": 0, "content": 1, "school": 1, "tags": 1,
+        {"_id": 0, "content": 1, "school": 1, "tags": 1, "year": 1,
          "source_url": 1, "source_title": 1, "source_file": 1,
          "source_date": 1, "questions": 1}
     ).limit(limit))

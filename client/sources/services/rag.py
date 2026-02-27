@@ -4,7 +4,7 @@ Lớp RAG: kết nối MongoDB, embedding model, LLM.
 Phương thức Vector Search: tạo embedding từ query → pipeline tìm kiếm → trả về kết quả.
 """
 import pymongo
-from services.embedding import MainEmbedding, EmbeddingConfig
+from services.embedding import get_embedding_model
 from models.document import COLLECTION_NAME, VECTOR_INDEX_NAME
 
 
@@ -27,7 +27,7 @@ class RAG:
         """
         self.client = pymongo.MongoClient(mongodb_uri)
         self.db = self.client[db_name]
-        self.embedding_model = MainEmbedding(EmbeddingConfig(name=embedding_name))
+        self.embedding_model = get_embedding_model(embedding_name)
         self.llm = llm
         self._collection = self.db[COLLECTION_NAME]
 
@@ -36,6 +36,7 @@ class RAG:
         query: str,
         school=None,
         tags=None,
+        year=None,
         num_candidates: int = 200,
         limit: int = 6,
         score_threshold: float = 0.55,
@@ -55,7 +56,10 @@ class RAG:
         if school:
             vs_filter["school"] = school
         if tags:
+            # Vector filter khong ho tro $all, chi dung $in de coarse filter
             vs_filter["tags"] = {"$in": tags}
+        if year:
+            vs_filter["year"] = year
 
         vector_search_stage = {
             "$vectorSearch": {
@@ -76,6 +80,7 @@ class RAG:
                 "content": 1,
                 "school": 1,
                 "tags": 1,
+                "year": 1,
                 "source_url": 1,
                 "source_title": 1,
                 "source_file": 1,
@@ -98,11 +103,22 @@ class RAG:
                     results = [d for d in results if self._school_matches(d.get("school", ""), school)]
                 if tags:
                     results = [d for d in results if d.get("tags") and set(d["tags"]) & set(tags)]
+                if year:
+                    results = [d for d in results if d.get("year") == year]
                 results = results[:limit]
             else:
                 raise
 
-        return [doc for doc in results if doc.get("score", 0) >= score_threshold]
+        filtered = [doc for doc in results if doc.get("score", 0) >= score_threshold]
+
+        # Enforce all tags in code (vector filter khong ho tro $all)
+        if tags:
+            filtered = [
+                d for d in filtered
+                if d.get("tags") and set(tags).issubset(set(d["tags"]))
+            ]
+
+        return filtered
 
     def _school_matches(self, doc_school: str, query_school: str) -> bool:
         s1 = (doc_school or "").strip().rstrip("/") or ""
@@ -114,6 +130,8 @@ class RAG:
         original_query: str,
         hyde_query: str,
         school=None,
+        tags=None,
+        year=None,
         num_candidates: int = 200,
         limit: int = 10,
         score_threshold: float = 0.55,
@@ -132,11 +150,13 @@ class RAG:
         # Dual search: original + HyDE
         results_orig = self.vector_search(
             original_query, school=school,
+            tags=tags, year=year,
             num_candidates=num_candidates, limit=limit,
             score_threshold=score_threshold,
         )
         results_hyde = self.vector_search(
             hyde_query, school=school,
+            tags=tags, year=year,
             num_candidates=num_candidates, limit=limit,
             score_threshold=score_threshold,
         )
@@ -147,7 +167,7 @@ class RAG:
         if program_name and school:
             try:
                 text_results = _text_search_score_docs(
-                    self._collection, school, program_name, tags=None, limit=5
+                    self._collection, school, program_name, tags=tags, year=year, limit=5
                 )
                 if text_results:
                     print(f"[DUAL-SEARCH] text-search ({program_name}): {len(text_results)} results")

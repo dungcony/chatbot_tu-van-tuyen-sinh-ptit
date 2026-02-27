@@ -6,6 +6,7 @@ SCHEMA = {
     "content": None,      # Nội dung thuần (KHÔNG có [Title][URL]), dùng để embed + hiển thị
     "embedding": None,    # Vector 768 chiều
     "school": None,       # Mã trường (ptit, hust, ...)
+    "year":None,
     "source_file": None,  # Tên file .md gốc
     "source_url": None,   # URL gốc crawl được
     "source_title": None, # Tiêu đề trang web

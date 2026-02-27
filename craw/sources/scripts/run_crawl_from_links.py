@@ -14,6 +14,7 @@ from pathlib import Path
 import json
 import time
 import sys
+import re
 
 # Setup path for services
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -36,6 +37,27 @@ from services.crawls import (
 from services.normalize.content_handlers import detect_content_type, extract_content, download_file
 
 MIN_CONTENT_LENGTH = 150
+
+
+_SAFE_SEGMENT = re.compile(r"[^\w\-]+", re.UNICODE)
+
+
+def _safe_path_segment(text: str) -> str:
+    text = (text or "").strip()
+    if not text:
+        return "_"
+    text = _SAFE_SEGMENT.sub("_", text)
+    text = text.strip("_-")
+    return text[:80] or "_"
+
+
+def _category_dir(base: Path, category: str | None) -> Path:
+    """Map category string like 'a/b/c' to nested safe folders."""
+    if not category:
+        return base / "_root"
+    parts = [p for p in str(category).split("/") if p and p not in (".", "..")]
+    safe_parts = [_safe_path_segment(p) for p in parts]
+    return base.joinpath(*safe_parts) if safe_parts else (base / "_root")
 
 
 def run_crawl(source_filter: str | None = None, max_pages: int = 500, download_files: bool = True):
@@ -79,22 +101,32 @@ def run_crawl(source_filter: str | None = None, max_pages: int = 500, download_f
         category = item.get("category", "")
         key = f"{source_id}|{url}"
 
+        # Output folder: public/data/<source_id>/<category>/...
+        out_base = DATA_DIR / source_id
+        out_dir = _category_dir(out_base, category)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        # Download folder (attachments): public/data/files/<source_id>/<category>/...
+        dl_dir = _category_dir(FILES_DIR / source_id, category)
+        dl_dir.mkdir(parents=True, exist_ok=True)
+
         content_type = detect_content_type(url)
 
         # HTML
         if content_type == "html":
             text, file_urls = crawl_html_page(url)
             if text:
-                filepath = DATA_DIR / url_to_filename(source_id, url, "md")
-                filepath.write_text(text, encoding="utf-8")
+                filepath = out_dir / url_to_filename(source_id, url, "md")
+                filepath.write_text(text.rstrip() + "\n", encoding="utf-8")
                 crawled_set.add(key)
                 new_crawled += 1
-                print(f"  OK [HTML] [{source_id}] {filepath.name} ({len(text)} chars)")
+                rel = filepath.relative_to(DATA_DIR)
+                print(f"  OK [HTML] [{source_id}] {rel} ({len(text)} chars)")
                 if download_files and file_urls:
                     for file_url in file_urls:
                         if file_url in downloaded_files:
                             continue
-                        saved = download_file(file_url, FILES_DIR / source_id)
+                        saved = download_file(file_url, dl_dir)
                         if saved:
                             downloaded_files.add(file_url)
                             print(f"    -> File: {saved.name}")
@@ -107,19 +139,20 @@ def run_crawl(source_filter: str | None = None, max_pages: int = 500, download_f
         elif content_type in ("pdf", "docx", "xlsx", "doc", "xls"):
             text, _ = extract_content(url, content_type)
             if text and len(text) >= MIN_CONTENT_LENGTH:
-                filepath = DATA_DIR / url_to_filename(source_id, url, "md")
+                filepath = out_dir / url_to_filename(source_id, url, "md")
                 header = f"[URL: {url}]\n[Loại: {content_type}]\n\n"
-                filepath.write_text(header + text, encoding="utf-8")
+                filepath.write_text((header + text).rstrip() + "\n", encoding="utf-8")
                 crawled_set.add(key)
                 new_crawled += 1
-                print(f"  OK [{content_type.upper()}] [{source_id}] {filepath.name}")
+                rel = filepath.relative_to(DATA_DIR)
+                print(f"  OK [{content_type.upper()}] [{source_id}] {rel}")
                 if download_files:
-                    saved = download_file(url, FILES_DIR / source_id)
+                    saved = download_file(url, dl_dir)
                     if saved:
                         print(f"    -> Đã tải: {saved.name}")
             else:
                 if download_files:
-                    saved = download_file(url, FILES_DIR / source_id)
+                    saved = download_file(url, dl_dir)
                     if saved:
                         crawled_set.add(key)
                         new_crawled += 1
@@ -135,28 +168,31 @@ def run_crawl(source_filter: str | None = None, max_pages: int = 500, download_f
         elif content_type == "image":
             text = ocr_image_table(url)
             if text:
-                filepath = DATA_DIR / url_to_filename(source_id, url, "md")
+                filepath = out_dir / url_to_filename(source_id, url, "md")
                 header = f"[URL: {url}]\n[Loại: ảnh - OCR]\n\n"
-                filepath.write_text(header + text, encoding="utf-8")
+                filepath.write_text((header + text).rstrip() + "\n", encoding="utf-8")
                 crawled_set.add(key)
                 new_crawled += 1
-                print(f"  OK [IMAGE/OCR] [{source_id}] {filepath.name}")
+                rel = filepath.relative_to(DATA_DIR)
+                print(f"  OK [IMAGE/OCR] [{source_id}] {rel}")
             else:
                 meta = get_image_metadata(url)
-                filepath = DATA_DIR / url_to_filename(source_id, url, "json")
+                filepath = out_dir / url_to_filename(source_id, url, "json")
                 filepath.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
                 crawled_set.add(key)
                 new_crawled += 1
-                print(f"  OK [IMAGE] [{source_id}] metadata: {filepath.name}")
+                rel = filepath.relative_to(DATA_DIR)
+                print(f"  OK [IMAGE] [{source_id}] metadata: {rel}")
 
         # Video
         elif content_type == "video":
             meta = get_video_metadata(url)
-            filepath = DATA_DIR / url_to_filename(source_id, url, "json")
+            filepath = out_dir / url_to_filename(source_id, url, "json")
             filepath.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
             crawled_set.add(key)
             new_crawled += 1
-            print(f"  OK [VIDEO] [{source_id}] metadata: {filepath.name}")
+            rel = filepath.relative_to(DATA_DIR)
+            print(f"  OK [VIDEO] [{source_id}] metadata: {rel}")
 
         else:
             failed_set.add(key)
@@ -178,39 +214,43 @@ def run_crawl_from_url(url: str, download_files: bool = True):
     from services.crawls import crawl_html_page, url_to_filename, extract_pdf, extract_docx, extract_xlsx, extract_json, get_video_metadata, ocr_image_table, get_image_metadata
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     source_id = "manual"
+    out_dir = DATA_DIR / source_id / "_root"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dl_dir = FILES_DIR / source_id / "_root"
+    dl_dir.mkdir(parents=True, exist_ok=True)
     content_type = detect_content_type(url)
     if content_type == "html":
         text, file_urls = crawl_html_page(url)
         if text:
-            filepath = DATA_DIR / url_to_filename(source_id, url, "md")
-            filepath.write_text(text, encoding="utf-8")
+            filepath = out_dir / url_to_filename(source_id, url, "md")
+            filepath.write_text(text.rstrip() + "\n", encoding="utf-8")
             print(f"  OK [HTML] {filepath.name} ({len(text)} chars)")
         else:
             print(f"  FAIL [HTML] {url[:60]}...")
     elif content_type in ("pdf", "docx", "xlsx", "doc", "xls"):
         text, _ = extract_content(url, content_type)
         if text:
-            filepath = DATA_DIR / url_to_filename(source_id, url, "md")
+            filepath = out_dir / url_to_filename(source_id, url, "md")
             header = f"[URL: {url}]\n[Loại: {content_type}]\n\n"
-            filepath.write_text(header + text, encoding="utf-8")
+            filepath.write_text((header + text).rstrip() + "\n", encoding="utf-8")
             print(f"  OK [{content_type.upper()}] {filepath.name}")
         else:
             print(f"  FAIL [{content_type.upper()}] {url[:60]}...")
     elif content_type == "image":
         text = ocr_image_table(url)
         if text:
-            filepath = DATA_DIR / url_to_filename(source_id, url, "md")
+            filepath = out_dir / url_to_filename(source_id, url, "md")
             header = f"[URL: {url}]\n[Loại: ảnh - OCR]\n\n"
-            filepath.write_text(header + text, encoding="utf-8")
+            filepath.write_text((header + text).rstrip() + "\n", encoding="utf-8")
             print(f"  OK [IMAGE/OCR] {filepath.name}")
         else:
             meta = get_image_metadata(url)
-            filepath = DATA_DIR / url_to_filename(source_id, url, "json")
+            filepath = out_dir / url_to_filename(source_id, url, "json")
             filepath.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"  OK [IMAGE] metadata: {filepath.name}")
     elif content_type == "video":
         meta = get_video_metadata(url)
-        filepath = DATA_DIR / url_to_filename(source_id, url, "json")
+        filepath = out_dir / url_to_filename(source_id, url, "json")
         filepath.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"  OK [VIDEO] metadata: {filepath.name}")
     else:

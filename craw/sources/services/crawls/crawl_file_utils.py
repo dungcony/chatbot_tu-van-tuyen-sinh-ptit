@@ -3,7 +3,7 @@
 Tiện ích xử lý dữ liệu dạng file (PDF, DOCX, XLSX, JSON...) trong quá trình crawl.
 - Trích xuất text từ file, chuẩn hóa nội dung
 """
-from normalize.content_handlers import extract_text_pdf, extract_text_docx, extract_text_xlsx
+from services.normalize.content_handlers import extract_text_pdf, extract_text_docx, extract_text_xlsx
 import json
 
 

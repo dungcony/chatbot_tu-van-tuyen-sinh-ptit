@@ -6,6 +6,7 @@ Chạy: python scripts/prepare_data.py
 import os
 import sys
 import json
+import re
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -58,6 +59,7 @@ def extract_meta_from_file(filepath):
         "source_url": None,
         "source_title": None,
         "tags": [],
+        "year": None,
         "chunk_id": None,
         "total_chunks": None,
     }
@@ -80,6 +82,27 @@ def extract_meta_from_file(filepath):
                         meta["school"] = l.split(":",1)[1].strip()
                     if l.startswith("tags:"):
                         meta["tags"] = [t.strip() for t in l.split(":",1)[1].split(",") if t.strip()]
+                    if l.startswith("year:"):
+                        y = l.split(":", 1)[1].strip()
+                        if y.isdigit():
+                            meta["year"] = int(y)
+                        else:
+                            meta["year"] = y or None
+
+    # Fallback: infer year from tags or filename
+    if meta.get("year") in (None, ""):
+        years = []
+        for t in meta.get("tags") or []:
+            if isinstance(t, str) and t.isdigit() and len(t) == 4:
+                y = int(t)
+                if 2015 <= y <= 2035:
+                    years.append(y)
+        if not years:
+            for s in re.findall(r"\b(20\d{2})\b", meta.get("source_file") or ""):
+                y = int(s)
+                if 2015 <= y <= 2035:
+                    years.append(y)
+        meta["year"] = max(years) if years else None
     return meta, content
 
 
@@ -99,6 +122,7 @@ def prepare_and_upload():
             doc["source_url"] = meta["source_url"]
             doc["source_title"] = meta["source_title"]
             doc["tags"] = meta["tags"]
+            doc["year"] = meta["year"]
             doc["chunk_id"] = idx + 1
             doc["total_chunks"] = total_chunks
             doc["embedding"] = None  # Chưa embed, sẽ cập nhật sau

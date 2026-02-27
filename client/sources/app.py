@@ -23,6 +23,8 @@ from flask import Flask
 
 from routers import register_routers
 from services import check_llm_connection
+from services.embedding import get_embedding_model
+from config import EMBEDDING_MODEL, EMBEDDING_DEVICE
 from services.rag import get_rag
 from models.document import get_collection
 
@@ -42,6 +44,15 @@ if __name__ == "__main__":
         print("[DB] MongoDB: OK")
     except Exception as e:
         print(f"[DB] MongoDB: ERROR - {e}")
+
+    # Warmup Embedding
+    try:
+        emb = get_embedding_model()
+        dim = len(emb.embed_query("ping"))
+        device = emb.device or "auto"
+        print(f"[EMBED] Model: {EMBEDDING_MODEL} | Device: {device} | Dim: {dim}")
+    except Exception as e:
+        print(f"[EMBED] ERROR - {e}")
 
     # Warmup RAG (embedding + vector index)
     try:

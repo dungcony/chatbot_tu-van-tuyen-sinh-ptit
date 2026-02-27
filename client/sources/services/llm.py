@@ -251,6 +251,11 @@ def rerank_docs(query: str, docs: list) -> list:
     if not docs:
         return docs
 
+    q_lower = (query or "").lower()
+    is_score_query = "điểm chuẩn" in q_lower or "diem chuan" in q_lower
+    min_score = 2 if is_score_query else 3
+    fallback_keep = 8 if is_score_query else 3
+
     chunks_text = ""
     for i, doc in enumerate(docs):
         chunks_text += f"[{i+1}] {doc['content'][:800]}\n\n"
@@ -287,19 +292,19 @@ CÁC ĐOẠN VĂN:
         )
         print(f"[RERANK]   scores   : {[s for _, s in scored]}")
 
-        # Giữ chunk có điểm >= 3, HOẶC chunk là text-match (tìm được bằng keyword search)
+        # Giữ chunk có điểm >= min_score, HOẶC chunk là text-match (tìm được bằng keyword search)
         ranked = []
         for doc, s in scored:
-            if s >= 3 or doc.get("_text_match"):
+            if s >= min_score or doc.get("_text_match"):
                 doc["rerank_score"] = s  # Giữ để generate_answer kiểm tra low_confidence
                 ranked.append(doc)
         for doc in ranked:
             doc.pop("_text_match", None)
 
         if not ranked:
-            # Fallback: giữ top 3 điểm cao nhất để LLM tự phán đoán
-            print(f"[RERANK]   all below threshold -> fallback top 3")
-            for doc, s in scored[:3]:
+            # Fallback: giữ top N điểm cao nhất để LLM tự phán đoán
+            print(f"[RERANK]   all below threshold -> fallback top {fallback_keep}")
+            for doc, s in scored[:fallback_keep]:
                 doc["rerank_score"] = s
                 ranked.append(doc)
         return ranked
@@ -399,7 +404,12 @@ CÂU HỎI: {query}
 TRẢ LỜI (trích dẫn [Nguồn X] khi sử dụng thông tin):"""
 
     try:
-        text = _call_llm(SYSTEM_INSTRUCTION, user_prompt, max_tokens=1024, temperature=0.1)
+        # Điểm chuẩn thường là bảng dài → tăng max_tokens để tránh cắt cụt
+        q_lower = (query or "").lower()
+        is_score_query = "điểm chuẩn" in q_lower or "diem chuan" in q_lower
+        max_tokens = 2048 if is_score_query else 1024
+
+        text = _call_llm(SYSTEM_INSTRUCTION, user_prompt, max_tokens=max_tokens, temperature=0.1)
         if not text:
             return "Xin lỗi, tôi không thể tạo câu trả lời từ dữ liệu này. Bạn thử hỏi cách khác nhé."
         return text

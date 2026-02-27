@@ -3,6 +3,7 @@ Service prepare - Upload + Embed dữ liệu lên MongoDB
 Chunk, upload, rồi embed vector cho chatbot.
 """
 import sys
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -51,7 +52,14 @@ def chunk_content(
 
 def extract_meta_from_file(filepath: Path) -> tuple[dict, str]:
     raw = filepath.read_text(encoding="utf-8")
-    meta = {"school": None, "source_file": filepath.name, "source_url": None, "source_title": None, "tags": []}
+    meta = {
+        "school": None,
+        "source_file": filepath.name,
+        "source_url": None,
+        "source_title": None,
+        "tags": [],
+        "year": None,
+    }
     content = raw
     if "[TITLE]" in raw and "[URL]" in raw and "[META]" in raw:
         parts = raw.split("---", 1)
@@ -69,7 +77,30 @@ def extract_meta_from_file(filepath: Path) -> tuple[dict, str]:
                         meta["school"] = l.split(":", 1)[1].strip()
                     if l.startswith("tags:"):
                         meta["tags"] = [t.strip() for t in l.split(":", 1)[1].split(",") if t.strip()]
+                    if l.startswith("year:"):
+                        y = l.split(":", 1)[1].strip()
+                        if y.isdigit():
+                            meta["year"] = int(y)
+                        else:
+                            meta["year"] = y or None
                 break
+
+    # Fallback: if year is missing, try to infer it from tags or filename.
+    if meta.get("year") in (None, ""):
+        years: list[int] = []
+        for t in meta.get("tags") or []:
+            if isinstance(t, str) and t.isdigit() and len(t) == 4:
+                y = int(t)
+                if 2015 <= y <= 2035:
+                    years.append(y)
+        if not years:
+            m = re.findall(r"\b(20\d{2})\b", meta.get("source_file") or "")
+            for s in m:
+                y = int(s)
+                if 2015 <= y <= 2035:
+                    years.append(y)
+        meta["year"] = max(years) if years else None
+
     return meta, content
 
 
@@ -82,7 +113,8 @@ def run_prepare(source_dir: Path, clear_first: bool = False, embed_after: bool =
     if clear_first:
         col.delete_many({})
 
-    files = sorted([f for f in source_dir.glob("*.md") if f.is_file()])
+    # Đệ quy đọc cả file trong subfolder (vd: ptits_nor/new/*.md)
+    files = sorted([f for f in source_dir.glob("**/*.md") if f.is_file()])
     total_chunks = 0
     for f in files:
         meta, content = extract_meta_from_file(f)
@@ -95,6 +127,7 @@ def run_prepare(source_dir: Path, clear_first: bool = False, embed_after: bool =
                 "source_url": meta["source_url"],
                 "source_title": meta["source_title"],
                 "tags": meta["tags"],
+                "year": meta["year"],
                 "chunk_id": idx + 1,
                 "total_chunks": len(chunks),
                 "embedding": None,

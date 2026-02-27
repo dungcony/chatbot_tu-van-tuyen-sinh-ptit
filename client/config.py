@@ -27,6 +27,7 @@ EMBEDDING_MODEL = os.getenv(
     "EMBEDDING_MODEL",
     "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
 )
+EMBEDDING_DEVICE = os.getenv("EMBEDDING_DEVICE", "auto")
 
 # ── Session (Sliding Window) ──────────────────────────────────────────
 SLIDING_WINDOW_SIZE = int(os.getenv("SLIDING_WINDOW_SIZE", "5"))

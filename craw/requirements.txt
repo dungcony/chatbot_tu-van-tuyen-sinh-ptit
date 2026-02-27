@@ -19,3 +19,4 @@ flask>=3.0.0
 
 # Embedding
 sentence-transformers>=2.2.0
+pydantic>=2.0.0

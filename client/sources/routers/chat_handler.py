@@ -3,6 +3,7 @@ Chat Handler - Logic xử lý chat (tách khỏi router để dễ đọc)
 Sử dụng lớp RAG theo thiết kế báo cáo (Hình 4.2.2).
 """
 from services import rewrite_and_hyde, rerank_docs
+import re
 from services.rag import get_rag
 from utils.session import session_manager
 from utils.nomalize import check_intent
@@ -18,6 +19,7 @@ QUESTION_PHRASES = (
 def is_school_selection(query: str) -> bool:
     """User chỉ nhập tên trường (chọn trường) hay câu hỏi thật?"""
     q = query.lower().strip().rstrip("!.,?")
+    words = q.split()
     # Có cụm từ câu hỏi → câu hỏi thật, vào RAG (vd: "điểm chuẩn ptit")
     if any(phrase in q for phrase in QUESTION_PHRASES):
         return False
@@ -56,6 +58,53 @@ def _get_school_name(school_id: str) -> str:
     from models.school import get_all_schools
     info = next((s for s in get_all_schools() if s["school_id"] == school_id), None)
     return info["name"] if info else school_id
+
+
+def _detect_query_tags(query: str) -> list[str]:
+    """Suy ra tags tu cau hoi (nam + loai thong tin) de loc search chinh xac hon."""
+    q = (query or "").lower()
+    tags = []
+
+    # Chi lay tag hop le (khong gom nam)
+    if "điểm chuẩn" in q or "diem chuan" in q or "điểm trúng tuyển" in q:
+        tags.append("diem_chuan")
+    if "ngành học" in q or "nganh hoc" in q:
+        tags.append("nganh_hoc")
+    if "xét tuyển" in q or "xet tuyen" in q:
+        tags.append("xet_tuyen")
+    if "điều kiện xét tuyển" in q or "dieu kien xet tuyen" in q:
+        tags.append("dieu_kien_xet_tuyen")
+    if "chỉ tiêu" in q or "chi tieu" in q:
+        tags.append("chi_tieu")
+    if "học phí" in q or "hoc phi" in q:
+        tags.append("hoc_phi")
+    if "học bổng" in q or "hoc bong" in q:
+        tags.append("hoc_bong")
+    if "cơ hội việc làm" in q or "co hoi viec lam" in q:
+        tags.append("co_hoi_viec_lam")
+    if "lịch tuyển sinh" in q or "lich tuyen sinh" in q:
+        tags.append("lich_tuyen_sinh")
+    if "thông tin" in q or "info" in q:
+        tags.append("info")
+
+    # Loai trung lap, giu thu tu on dinh
+    deduped = []
+    seen = set()
+    for t in tags:
+        if t and t not in seen:
+            deduped.append(t)
+            seen.add(t)
+    return deduped
+
+
+def _detect_query_year(query: str) -> str | None:
+    """Lấy năm cụ thể trong câu hỏi (vd: 2025)."""
+    q = (query or "").lower()
+    match = re.search(r"\b20\d{2}\b", q)
+    if not match:
+        return None
+    year_str = match.group(0)
+    return int(year_str) if year_str.isdigit() else year_str
 
 
 def handle_intent_nonsense(query: str, session_id: str) -> tuple[str, list]:
@@ -131,10 +180,18 @@ def handle_rag(query: str, session_id: str, school: str) -> tuple[str, list]:
 
     _log_step("HYDE", hyde[:120] + "...")
 
+    # Tag filter tu query (nam + loai thong tin) de tang do chinh xac
+    tags = _detect_query_tags(effective_query)
+    if tags:
+        print(f"[TAGS]     query tags={tags}")
+    year = _detect_query_year(effective_query)
+    if year:
+        print(f"[YEAR]     query year={year}")
+
     # Vector search (RAG.retrieve): tăng limit cho câu hỏi điểm chuẩn (bảng nhiều ngành)
     search_limit = 18 if ("điểm chuẩn" in q_lower or "diem chuan" in q_lower) else 10
     context_docs = rag.retrieve(
-        effective_query, hyde, school=school,
+        effective_query, hyde, school=school, tags=tags, year=year,
         num_candidates=300, limit=search_limit,
     )
     _log_search(context_docs)
@@ -143,14 +200,18 @@ def handle_rag(query: str, session_id: str, school: str) -> tuple[str, list]:
         session_manager.add_message(session_id, "bot", answer)
         return answer, []
 
-    # Rerank
-    context_docs = rerank_docs(effective_query, context_docs)
-    print(f"[RERANK]   kept: {len(context_docs)} chunks")
-    max_rerank = max((d.get("rerank_score", 0) for d in context_docs), default=0)
-    # Chỉ "I don't know" khi điểm <= 2 (ít/không liên quan). Điểm 3 = liên quan → vẫn trả lời
-    low_confidence = max_rerank <= 2
-    if low_confidence:
-        print("[LLM] low_confidence=True (rerank scores thấp)")
+    # Rerank (bo qua khi cau hoi diem chuan de giu du du lieu)
+    if "điểm chuẩn" in q_lower or "diem chuan" in q_lower:
+        print("[RERANK]   skipped for score-table query")
+        low_confidence = False
+    else:
+        context_docs = rerank_docs(effective_query, context_docs)
+        print(f"[RERANK]   kept: {len(context_docs)} chunks")
+        max_rerank = max((d.get("rerank_score", 0) for d in context_docs), default=0)
+        # Chỉ "I don't know" khi điểm <= 2 (ít/không liên quan). Điểm 3 = liên quan → vẫn trả lời
+        low_confidence = max_rerank <= 2
+        if low_confidence:
+            print("[LLM] low_confidence=True (rerank scores thấp)")
 
     # Generate (RAG.generate)
     answer = rag.generate(query, context_docs, history=history, low_confidence=low_confidence)
@@ -172,5 +233,9 @@ def _log_search(docs: list):
     print(f"[SEARCH]   found: {len(docs)} chunks")
     for i, d in enumerate(docs):
         url = (d.get("source_url") or "")[-55:]
-        print(f"           [{i+1}] score={d.get('score',0):.4f} tags={d.get('tags',[])} url=...{url}")
+        year = d.get("year", "")
+        print(
+            f"           [{i+1}] score={d.get('score',0):.4f} tags={d.get('tags',[])} "
+            f"year={year} url=...{url}"
+        )
     print("=" * 60)

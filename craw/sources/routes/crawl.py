@@ -3,6 +3,7 @@ Router Crawl - Trang và API crawl dữ liệu
 """
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from flask import Blueprint, render_template, request, jsonify
@@ -16,7 +17,7 @@ crawl_bp = Blueprint("crawl", __name__, url_prefix="")
 
 def _run_script(script_name: str, args: list[str]) -> tuple[int, str]:
     """Chạy script Python, trả về (exit_code, output)."""
-    cmd = ["python", str(SCRIPTS_DIR / script_name)] + args
+    cmd = [sys.executable, str(SCRIPTS_DIR / script_name)] + args
     try:
         result = subprocess.run(
             cmd,
@@ -84,11 +85,12 @@ def api_crawl_hierarchical():
     data = request.get_json() or {}
     url = (data.get("url") or "").strip()
     max_pages = data.get("max", 500)
+    scope = (data.get("scope") or "path").strip() or "path"
     if not url:
         return jsonify({"ok": False, "error": "Nhập URL gốc"}), 400
     code, out = _run_script(
         "crawl_hierarchical.py",
-        [url, "--max", str(max_pages)],
+        [url, "--max", str(max_pages), "--scope", scope, "--save-links"],
     )
     return jsonify({
         "ok": code == 0,

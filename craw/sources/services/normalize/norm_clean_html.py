@@ -16,7 +16,8 @@ def clean_html_and_special_chars(text: str) -> str:
     if not text:
         return ""
     text = html.unescape(text)
-    text = re.sub(r"<[^>]+>", " ", text)
+    # Chỉ xóa thẻ HTML thực sự (<tag>), tránh nhầm với <= >= trong bảng điểm (TTNV<=2)
+    text = re.sub(r"<\w[^>]*>", " ", text)
     text = text.replace("\xa0", " ").replace("\u200b", "").replace("\ufeff", "")
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)

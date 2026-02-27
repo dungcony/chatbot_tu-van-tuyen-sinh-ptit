@@ -33,6 +33,19 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v"}
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".m4a"}
 
+# Static web assets that should not be crawled as content
+ASSET_EXTENSIONS = {
+    ".js",
+    ".css",
+    ".map",
+    ".ico",
+    ".svg",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+}
+
 
 def _get_content_type(url: str, timeout: int = 10) -> str | None:
     """Lấy Content-Type từ HEAD request."""
@@ -58,6 +71,8 @@ def detect_content_type(url: str) -> str:
         return "video"
     if ext in AUDIO_EXTENSIONS:
         return "audio"
+    if ext in ASSET_EXTENSIONS:
+        return "asset"
     if ext in FILE_EXTENSIONS:
         return FILE_EXTENSIONS[ext]
 
@@ -66,6 +81,8 @@ def detect_content_type(url: str) -> str:
     if ct:
         if "text/html" in ct:
             return "html"
+        if "javascript" in ct or "text/css" in ct:
+            return "asset"
         if "application/pdf" in ct:
             return "pdf"
         if "image/" in ct:

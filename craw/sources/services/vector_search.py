@@ -5,7 +5,7 @@ Dual search: kết hợp kết quả từ nhiều query để tăng độ phủ 
 """
 import logging
 from sources.models.document import get_collection, VECTOR_INDEX_NAME
-from sources.services.embed_service import get_embedder
+from sources.services.embedding import get_embedding_model
 
 logger = logging.getLogger(__name__)
 
@@ -84,11 +84,7 @@ def detect_query_tags(query: str) -> list:
 
 def _embed_query(text: str) -> list[float]:
     """Embed 1 câu query thành vector."""
-    model = get_embedder()
-    vector = model.encode(text)
-    if hasattr(vector, "tolist"):
-        return vector.tolist()
-    return list(vector)
+    return get_embedding_model().embed_query(text)
 
 
 def _text_search_score_docs(

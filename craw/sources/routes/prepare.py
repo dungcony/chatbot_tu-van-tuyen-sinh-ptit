@@ -44,12 +44,12 @@ def prepare_page():
     for label, path in NOR_DIRS:
         if path.exists():
             for rel, p in _list_folders_with_md(path):
-                count = len(list(p.glob("*.md")))
+                count = len([f for f in p.glob("**/*.md") if f.is_file()])
                 dirs.append({"label": rel, "path": str(p), "count": count})
     # Thư mục data và các folder *_nor bên trong
     for label, base in DATA_BASES:
         for rel, path in _list_folders_with_md(base):
-            count = len(list(path.glob("*.md")))
+            count = len([f for f in path.glob("**/*.md") if f.is_file()])
             dirs.append({"label": rel, "path": str(path), "count": count})
     return render_template("prepare.html", source_dirs=dirs)
 
