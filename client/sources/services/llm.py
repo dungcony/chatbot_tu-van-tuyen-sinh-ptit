@@ -92,6 +92,39 @@ def _call_llm(system: str, user: str, max_tokens: int = 1024, temperature: float
         return resp.choices[0].message.content.strip()
 
 
+# ── Healthcheck LLM ──────────────────────────────────────────────────
+def check_llm_connection() -> tuple[bool, str]:
+    """
+    Kiểm tra kết nối tới LLM (Gemini / Groq / Ollama / OpenAI-compat).
+    - Trả về (ok: bool, message: str)
+    - Chỉ gọi 1 prompt rất ngắn ("ping") để không tốn nhiều quota.
+    """
+    try:
+        if _PROVIDER == "gemini":
+            model = _get_gemini_model()
+            response = model.generate_content(
+                "ping",
+                generation_config={"temperature": 0.0, "max_output_tokens": 1},
+            )
+            _ = _safe_response_text(response)
+        else:
+            client = _get_openai_client()
+            model_name = LLM_MODEL or ("llama-3.3-70b-versatile" if _PROVIDER == "groq" else "llama3.2")
+            resp = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": "ping"}],
+                temperature=0,
+                max_tokens=1,
+            )
+            _ = resp.choices[0].message.content if resp.choices else ""
+
+        print(f"[LLM] Healthcheck OK (provider={_PROVIDER})")
+        return True, "OK"
+    except Exception as e:
+        print(f"[LLM] Healthcheck FAILED (provider={_PROVIDER}): {e}")
+        return False, str(e)
+
+
 # ── Giữ lại để không break code cũ nếu có nơi gọi trực tiếp ─────────
 def _get_model():
     return _get_gemini_model()
@@ -141,16 +174,7 @@ TRẢ LỜI: Hiện tại tôi chưa có dữ liệu chính xác cho năm 2030. 
 
 
 def rewrite_and_hyde(query: str, history: list, school_name: str = "") -> tuple:
-    """
-    ⚡ Gộp Rewrite + HyDE thành 1 LLM call duy nhất (thay vì 2 call riêng lẻ).
-    Tiết kiệm ~50% latency cho bước tiền xử lý.
-
-    Trả về: (rewritten_query, hyde_text)
-      - rewritten_query: Câu hỏi viết lại ĐỘC LẬP (có đủ ngữ cảnh)
-      - hyde_text: Đoạn văn giả định chứa câu trả lời (để search tốt hơn)
-
-    Fallback: Nếu LLM lỗi hoặc parse thất bại → trả về (query, query)
-    """
+  
     school_hint = f" tại **{school_name}**" if school_name else ""
 
     # Build history text (chỉ lấy 4 lượt cuối)

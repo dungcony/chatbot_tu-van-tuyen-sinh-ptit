@@ -1,10 +1,8 @@
 """
-Vector Search - Tim kiem ngu nghia trong MongoDB
-Ho tro loc theo truong (school) va tags.
-Dual search: ket hop ket qua tu nhieu query de tang do phu (recall).
+Retriever Utils - Hàm phụ trợ cho RAG.retrieve()
+Vector search chính nằm trong RAG.vector_search (rag.py).
+Chỉ chứa: text search, merge, boost, enrich_context_docs.
 """
-from models.document import get_collection, VECTOR_INDEX_NAME
-from services.embedding import get_embedding_model
 from rapidfuzz import process, fuzz
 
 
@@ -61,12 +59,11 @@ def _detect_program_name(query: str) -> str:
     return ""
 
 
-def _text_search_score_docs(school: str, program_name: str, tags: list | None = None, limit: int = 5) -> list:
+def _text_search_score_docs(collection, school: str, program_name: str, tags: list | None = None, limit: int = 5) -> list:
     """
     Text search: tim docs chua ten nganh CU THE trong content.
     Dac biet huu ich cho du lieu dang bang (table) ma vector search miss.
     """
-    collection = get_collection()
     # DB có thể lưu "ptit" hoặc "ptit/" → match cả hai
     s_norm = _normalize_school(school)
     query_filter = {"school": {"$in": [s_norm, s_norm + "/"]}}
@@ -94,67 +91,6 @@ def _text_search_score_docs(school: str, program_name: str, tags: list | None = 
 def _normalize_school(s: str) -> str:
     """Chuẩn hóa school: ptit, ptit/ → cùng format (bỏ trailing /)."""
     return (s or "").strip().rstrip("/") or ""
-
-
-def _school_matches(doc_school: str, query_school: str) -> bool:
-    """So sánh school: ptit vs ptit/ đều match."""
-    return _normalize_school(doc_school) == _normalize_school(query_school)
-
-
-def _single_vector_search(query_vector, school=None, tags=None,
-                           num_candidates=200, limit=6, score_threshold=0.65):
-    """Thuc hien 1 lan vector search voi optional tag filter."""
-    from pymongo.errors import OperationFailure
-
-    collection = get_collection()
-
-    # Build filter (school, tags phải có trong index definition - Atlas Vector Search)
-    vs_filter = {}
-    if school:
-        vs_filter["school"] = school
-    if tags:
-        vs_filter["tags"] = {"$in": tags}
-
-    vs_stage = {
-        "$vectorSearch": {
-            "index": VECTOR_INDEX_NAME,
-            "path": "embedding",
-            "queryVector": query_vector,
-            "numCandidates": num_candidates,
-            "limit": limit
-        }
-    }
-    if vs_filter:
-        vs_stage["$vectorSearch"]["filter"] = vs_filter
-
-    pipeline = [
-        vs_stage,
-        {"$project": {
-            "_id": 0, "content": 1, "school": 1, "tags": 1,
-            "source_url": 1, "source_title": 1, "source_file": 1,
-            "source_date": 1, "questions": 1,
-            "score": {"$meta": "vectorSearchScore"}
-        }}
-    ]
-
-    try:
-        results = list(collection.aggregate(pipeline))
-    except OperationFailure as e:
-        # Index chưa có filter fields (school, tags) → search không filter, lọc sau
-        if "needs to be indexed as filter" in str(e):
-            print(f"[VECTOR-SEARCH] Filter không hỗ trợ, fallback: search không filter + lọc Python")
-            vs_stage["$vectorSearch"].pop("filter", None)
-            vs_stage["$vectorSearch"]["limit"] = limit * 5  # Lấy nhiều để lọc
-            results = list(collection.aggregate(pipeline))
-            if school:
-                results = [d for d in results if _school_matches(d.get("school", ""), school)]
-            if tags:
-                results = [d for d in results if d.get("tags") and set(d["tags"]) & set(tags)]
-            results = results[:limit]
-        else:
-            raise
-
-    return [doc for doc in results if doc.get("score", 0) >= score_threshold]
 
 
 def _merge_results(priority_results: list, other_result_lists: list, max_results: int = 10) -> list:
@@ -189,64 +125,6 @@ def _merge_results(priority_results: list, other_result_lists: list, max_results
                     _add_doc(results[idx])
                     if len(merged) >= max_results:
                         return merged
-    return merged
-
-
-def vector_search(query, school=None, num_candidates=200, limit=6, score_threshold=0.55):
-    """Vector search co ban (backward compatible)."""
-    embedding_model = get_embedding_model()
-    query_vector = embedding_model.embed_query(query)
-    return _single_vector_search(query_vector, school=school,
-                                  num_candidates=num_candidates, limit=limit,
-                                  score_threshold=score_threshold)
-
-
-def dual_vector_search(original_query, hyde_query, school=None,
-                        num_candidates=200, limit=10, score_threshold=0.55):
-    """
-    Dual search: tim kiem voi CA 2 query (original + HyDE), merge ket qua.
-
-    Ly do: HyDE sinh van ban gia dinh giup match ngu canh,
-    nhung doi khi lech khoi cau hoi goc (dac biet voi bang diem).
-    Search bang query goc dam bao khong bo sot ket qua truc tiep.
-
-    Khong dung tag-filter: cau hoi user kho map chinh xac tag,
-    vector search semantic da du de tim doc lien quan.
-    """
-    embedding_model = get_embedding_model()
-
-    # Search 1: query goc
-    orig_vector = embedding_model.embed_query(original_query)
-    results_orig = _single_vector_search(
-        orig_vector, school=school,
-        num_candidates=num_candidates, limit=limit,
-        score_threshold=score_threshold
-    )
-
-    # Search 2: HyDE query
-    hyde_vector = embedding_model.embed_query(hyde_query)
-    results_hyde = _single_vector_search(
-        hyde_vector, school=school,
-        num_candidates=num_candidates, limit=limit,
-        score_threshold=score_threshold
-    )
-
-    # Text search: tim bang diem theo ten nganh (vd: "CNTT") - khong can tag
-    program_name = _detect_program_name(original_query)
-    text_results = []
-    if program_name and school:
-        try:
-            text_results = _text_search_score_docs(school, program_name, tags=None, limit=5)
-            if text_results:
-                print(f"[DUAL-SEARCH] text-search ({program_name}): {len(text_results)} results")
-        except Exception as e:
-            print(f"[DUAL-SEARCH] text-search failed: {e}")
-
-    merged = _merge_results(text_results, [results_orig, results_hyde], max_results=limit)
-    print(f"[DUAL-SEARCH] merged total    : {len(merged)} results")
-
-    # Boost: docs có questions khớp với query -> đẩy lên đầu (tăng độ chính xác)
-    merged = _boost_by_questions_match(merged, original_query)
     return merged
 
 

@@ -1,0 +1,29 @@
+# ============================================================
+# CHỈ CẦN ĐIỀN 2 DÒNG BÊN DƯỚI - Các dòng khác giữ nguyên
+# ============================================================
+
+# 1. MongoDB: URI kết nối (Atlas hoặc localhost)
+MONGO_URI=
+
+# 2. LLM API Key (Gemini: https://aistudio.google.com/apikey | Groq: https://console.groq.com)
+LLM_API_KEY=
+
+# --- Không cần sửa (đổi model/provider: sửa LLM_PROVIDER + LLM_MODEL, thêm LLM_BASE_URL nếu dùng Groq/Ollama) ---
+DB_NAME=tuvantuyensinh
+LLM_PROVIDER=gemini
+LLM_MODEL=gemini-2.0-flash-lite
+
+# Ví dụ đổi sang Groq (bỏ comment 3 dòng dưới, comment 2 dòng trên):
+# LLM_PROVIDER=groq
+# LLM_BASE_URL=https://api.groq.com/openai/v1
+# LLM_MODEL=llama-3.3-70b-versatile
+
+# Ví dụ đổi sang Ollama local (chạy ollama run llama3.2 trước):
+# LLM_PROVIDER=ollama
+# LLM_BASE_URL=http://localhost:11434/v1
+# LLM_MODEL=qwen3.5:397b-cloud
+
+# Groq Cloud (thay Ollama local - free, không cần máy mạnh):
+# LLM_PROVIDER=groq
+# LLM_BASE_URL=https://api.groq.com/openai/v1
+# LLM_MODEL=llama-3.3-70b-versatile

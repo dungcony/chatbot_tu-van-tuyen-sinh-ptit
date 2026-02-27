@@ -1,15 +1,26 @@
 """
 Chat Handler - Logic xử lý chat (tách khỏi router để dễ đọc)
+Sử dụng lớp RAG theo thiết kế báo cáo (Hình 4.2.2).
 """
-from services import dual_vector_search, generate_answer, rewrite_and_hyde, rerank_docs
+from services import rewrite_and_hyde, rerank_docs
+from services.rag import get_rag
 from utils.session import session_manager
 from utils.nomalize import check_intent
 
 
+# Cụm từ câu hỏi thật: nếu có trong query → không phải chọn trường, vào RAG
+QUESTION_PHRASES = (
+    "điểm chuẩn", "diem chuan", "học phí", "hoc phi", "chỉ tiêu", "chi tieu",
+    "ngành học", "nganh hoc", "xét tuyển", "xet tuyen", "học bổng", "hoc bong",
+    "ký túc", "ky tuc", "túc xá", "tuc xa",
+)
+
 def is_school_selection(query: str) -> bool:
     """User chỉ nhập tên trường (chọn trường) hay câu hỏi thật?"""
     q = query.lower().strip().rstrip("!.,?")
-    words = q.split()
+    # Có cụm từ câu hỏi → câu hỏi thật, vào RAG (vd: "điểm chuẩn ptit")
+    if any(phrase in q for phrase in QUESTION_PHRASES):
+        return False
     if len(words) > 5:
         return False
     filler = {"truong", "trường", "dai", "đại", "hoc", "học", "mình", "minh", "toi", "tôi",
@@ -19,7 +30,7 @@ def is_school_selection(query: str) -> bool:
     school = detect_school(query)
     if not school:
         return False
-    remaining = [w for w in words if w not in filler]
+    remaining = [w for w in q.split() if w not in filler]
     return len(remaining) <= 3
 
 
@@ -99,7 +110,8 @@ def handle_no_school(session_id: str) -> tuple[str, list]:
 
 
 def handle_rag(query: str, session_id: str, school: str) -> tuple[str, list]:
-    """Pipeline RAG: Rewrite → Search → Rerank → Generate."""
+    """Pipeline RAG: Rewrite → Search (RAG.retrieve) → Rerank → Generate (RAG.generate)."""
+    rag = get_rag()
     school_name = _get_school_name(school)
     history = session_manager.get_history(session_id)
 
@@ -119,9 +131,12 @@ def handle_rag(query: str, session_id: str, school: str) -> tuple[str, list]:
 
     _log_step("HYDE", hyde[:120] + "...")
 
-    # Vector search: tăng limit cho câu hỏi điểm chuẩn (bảng nhiều ngành)
+    # Vector search (RAG.retrieve): tăng limit cho câu hỏi điểm chuẩn (bảng nhiều ngành)
     search_limit = 18 if ("điểm chuẩn" in q_lower or "diem chuan" in q_lower) else 10
-    context_docs = dual_vector_search(effective_query, hyde, school=school, num_candidates=300, limit=search_limit)
+    context_docs = rag.retrieve(
+        effective_query, hyde, school=school,
+        num_candidates=300, limit=search_limit,
+    )
     _log_search(context_docs)
     if not context_docs:
         answer = "Xin lỗi, tôi không tìm thấy thông tin liên quan. Bạn thử hỏi cách khác nhé!"
@@ -137,8 +152,8 @@ def handle_rag(query: str, session_id: str, school: str) -> tuple[str, list]:
     if low_confidence:
         print("[LLM] low_confidence=True (rerank scores thấp)")
 
-    # Generate
-    answer = generate_answer(query, context_docs, history=history, low_confidence=low_confidence)
+    # Generate (RAG.generate)
+    answer = rag.generate(query, context_docs, history=history, low_confidence=low_confidence)
     session_manager.add_message(session_id, "bot", answer)
 
     sources = [
